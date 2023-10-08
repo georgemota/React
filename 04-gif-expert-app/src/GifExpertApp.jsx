@@ -6,9 +6,10 @@ export const GifExpertApp = () => {
   //console.log('Hola mundo')
   const [categories, setCategories] = useState([ 'One piece', 'Rick & Morty' ])
   
-  const onAddCategory = () => {
+  const onAddCategory = ( newCategory ) => {
     
-    setCategories([ 'Zoro', ...categories ]);
+    if( categories.includes(newCategory)) return;
+    setCategories([ newCategory, ...categories ]);
   }
 
   return (
@@ -17,10 +18,11 @@ export const GifExpertApp = () => {
     <h1>GifExpertApp</h1>
 
     {/*  Input  */}
-    <AddCategory />
+    <AddCategory 
+      onNewCategory={ onAddCategory }
+    />
 
     {/* List of gifs */}
-    <button onClick={ onAddCategory }>Agregar</button>
     <ol>
       {
         categories.map( category =>{
