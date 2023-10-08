@@ -2,6 +2,7 @@ import {useState} from 'react';
 
 export const GifExpertApp = () => {
 
+  //console.log('Hola mundo')
   const [categories, setCategories] = useState([ 'One piece', 'Rick & Morty' ])
   
   const onAddCategory = () => {
