@@ -1,0 +1,24 @@
+/* carousel.css */
+
+/* Style the carousel container */
+.carousel {
+  max-width: 80%;
+  margin: 0 auto;
+}
+
+/* Customize the carousel items (individual slides) */
+.carousel .slide {
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+/* Style the navigation arrows */
+.carousel .control-arrow {
+  background-color: #333;
+  color: #fff;
+  border-radius: 50%;
+}
+
+
+/* Additional styling as needed */
