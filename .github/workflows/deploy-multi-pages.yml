@@ -1,4 +1,4 @@
-name: Deploy multi projects to GitHub Pages
+name: Deploy multi projects (incremental) to GitHub Pages
 
 on:
   push:
@@ -15,22 +15,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect_changed:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+      any_changed: ${{ steps.build-matrix.outputs.any_changed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1) Detecta qué carpetas cambiaron
+      - name: Paths filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            app_01_intro:
+              - '01-intro-react/**'
+            app_gif_expert:
+              - '05-gif-expert-app/**'
+            app_counter_cra:
+              - '03-counter-app-cra/**'
+
+      # 2) Genera la matriz solo con las apps cambiadas
+      - name: Build dynamic matrix
+        id: build-matrix
+        run: |
+          changes=()
+          if [ "${{ steps.filter.outputs.app_01_intro }}" = "true" ]; then
+            changes+=('{ "name": "01-intro-react", "path": "01-intro-react", "type": "static" }')
+          fi
+          if [ "${{ steps.filter.outputs.app_gif_expert }}" = "true" ]; then
+            changes+=('{ "name": "05-gif-expert-app", "path": "05-gif-expert-app", "type": "vite" }')
+          fi
+          if [ "${{ steps.filter.outputs.app_counter_cra }}" = "true" ]; then
+            changes+=('{ "name": "03-counter-app-cra", "path": "03-counter-app-cra", "type": "cra" }')
+          fi
+
+          if [ ${#changes[@]} -eq 0 ]; then
+            echo "No hay apps cambiadas."
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+            echo 'any_changed=false' >> $GITHUB_OUTPUT
+          else
+            json="{"'include'":["
+            IFS=,
+            json+=$(printf "%s" "${changes[*]}")
+            json+="]}"
+            echo "Matriz: $json"
+            echo "matrix=$json" >> $GITHUB_OUTPUT
+            echo 'any_changed=true' >> $GITHUB_OUTPUT
+          fi
+
   build_each:
+    needs: detect_changed
+    if: needs.detect_changed.outputs.any_changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: 01-intro-react
-            path: 01-intro-react
-            type: static
-          - name: 05-gif-expert-app
-            path: 05-gif-expert-app
-            type: vite
-          - name: 03-counter-app-cra
-            path: 03-counter-app-cra
-            type: cra
-
+      matrix: ${{ fromJson(needs.detect_changed.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,15 +90,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      - name: Build project ${{ matrix.name }}
+      - name: Build ${{ matrix.name }}
         working-directory: ${{ matrix.path }}
         env:
           REPO_NAME: ${{ github.event.repository.name }}
           PUBLIC_URL: /${{ github.event.repository.name }}/${{ matrix.name }}/
         run: |
           set -e
-          echo "Proyecto: ${{ matrix.name }} | Tipo: ${{ matrix.type }}"
-
+          echo "Construyendo: ${{ matrix.name }} (tipo=${{ matrix.type }})"
           if [ -f package.json ]; then
             if [ -f package-lock.json ]; then npm ci; else npm install; fi
           fi
@@ -91,39 +132,71 @@ jobs:
           fi
           if [ -f "$DEST/index.html" ]; then cp "$DEST/index.html" "$DEST/404.html"; fi
 
-      - name: Upload artifact for ${{ matrix.name }}
+      - name: Upload artifact (${{ matrix.name }})
         uses: actions/upload-artifact@v4
         with:
           name: project-${{ matrix.name }}
           path: site_${{ matrix.name }}
+          retention-days: 30
 
   combine_and_deploy:
-    needs: build_each
+    needs: [detect_changed, build_each]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      # 1) Descargar el artifact del deploy anterior (si existe)
+      - name: Download previous Pages artifact (if exists)
+        id: prev
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        with:
+          workflow: deploy-multi-incremental.yml   # <-- nombre de este workflow
+          workflow_conclusion: success
+          branch: main
+          name: github-pages                         # nombre por defecto del artifact de Pages
+          path: _prev
+
+      - name: Prepare base site
+        run: |
+          set -e
+          mkdir -p site
+          if [ -d _prev ]; then
+            echo "Usando artifact anterior como base"
+            # el artifact de Pages viene como zip dentro, extraemos si aplica
+            if compgen -G "_prev/*.zip" > /dev/null; then
+              unzip -q _prev/*.zip -d site
+            else
+              cp -r _prev/* site/ || true
+            fi
+          else
+            echo "No hay artifact previo; partimos de site/ vacío"
+          fi
+
+      # 2) Descargar artefactos de esta corrida (solo apps cambiadas)
+      - name: Download current project artifacts
         uses: actions/download-artifact@v4
         with:
           path: _dl
 
-      - name: Assemble site
+      - name: Merge changed apps into site
         run: |
           set -e
-          mkdir -p site
+          shopt -s nullglob
           for d in _dl/project-*; do
             name=$(basename "$d" | sed 's/^project-//')
+            echo "Actualizando site/$name"
             mkdir -p "site/$name"
             cp -r "$d"/* "site/$name/"
           done
 
+          # Index raíz (regenerar)
           cat > site/index.html <<'HTML'
           <!doctype html><meta charset="utf-8">
           <title>Proyectos</title>
           <style>
-          body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:40px;line-height:1.6}
-          h1{margin-bottom:0.5rem}ul{padding-left:1.2rem}
-          a{text-decoration:none}a:hover{text-decoration:underline}
-          code{background:#f3f3f3;padding:2px 6px;border-radius:4px}
+            body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:40px;line-height:1.6}
+            h1{margin-bottom:0.5rem}ul{padding-left:1.2rem}
+            a{text-decoration:none}a:hover{text-decoration:underline}
+            code{background:#f3f3f3;padding:2px 6px;border-radius:4px}
           </style>
           <h1>Proyectos publicados</h1><ul>
           HTML
@@ -136,6 +209,7 @@ jobs:
           <p>Repositorio: <a href="https://github.com/${{ github.repository }}">@${{ github.repository }}</a></p>
           HTML
 
+      # 3) Subir y desplegar TODO junto (una sola vez)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
