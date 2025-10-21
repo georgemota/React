@@ -15,32 +15,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  build_each:
     runs-on: ubuntu-latest
-
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Proyectos estáticos (solo HTML/CSS/JS en la carpeta)
-          # Vite (React/Vanilla/etc). El build sale en "dist"
-          # Create React App. El build sale en "build"
-          
+
           - name: 01-intro-react
             path: 01-intro-react
             type: static
 
           - name: 03-counter-app-cra
             path: 03-counter-app-cra
-            type: static
+            type: cra
           
+          - name: 03-custom-counter-app-vite
+            path: 03-custom-counter-app-vite
+            type: vite
+
+          - name: 04-default-counter-app-vite
+            path: 04-default-counter-app-vite
+            type: vite
+                      
           - name: 05-gif-expert-app
             path: 05-gif-expert-app
             type: vite
-          
-          - name: 03-counter-app-cra
-            path: 03-counter-app-cra
-            type: cra
 
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +50,15 @@ jobs:
         with:
           node-version: 20
 
+      - name: Cache node_modules
+        if: hashFiles(format('{0}/package-lock.json', matrix.path)) != ''
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.path }}/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles(format('{0}/package-lock.json', matrix.path)) }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
       - name: Build project ${{ matrix.name }}
         working-directory: ${{ matrix.path }}
         env:
@@ -57,25 +66,17 @@ jobs:
           PUBLIC_URL: /${{ github.event.repository.name }}/${{ matrix.name }}/
         run: |
           set -e
+          echo "Proyecto: ${{ matrix.name }} | Tipo: ${{ matrix.type }}"
 
-          echo "Proyecto: ${{ matrix.name }}"
-          echo "Tipo: ${{ matrix.type }}"
-          echo "Ruta: $(pwd)"
-
-          # Si hay Node, instala dependencias (seguro para static también)
           if [ -f package.json ]; then
             if [ -f package-lock.json ]; then npm ci; else npm install; fi
           fi
 
-          # Build según tipo
           case "${{ matrix.type }}" in
             static)
-              # No hay build: solo copiar tal cual
               OUT_DIR="$(pwd)"
               ;;
-
             vite)
-              # Forzamos base para subcarpeta (Pages)
               if grep -q "\"build\"" package.json; then
                 npm run build -- --base="/$REPO_NAME/${{ matrix.name }}/"
               else
@@ -83,77 +84,65 @@ jobs:
               fi
               OUT_DIR="dist"
               ;;
-
             cra)
-              # CRA respeta PUBLIC_URL para rutas relativas
               npm run build
               OUT_DIR="build"
               ;;
-
-            angular)
-              # Angular: intentamos pasar --base-href; si falla, build normal
-              if npx ng version >/dev/null 2>&1; then
-                npx ng build --configuration production --base-href="/$REPO_NAME/${{ matrix.name }}/" || npx ng build --configuration production
-              else
-                # Si no está el CLI global, confiamos en scripts del proyecto
-                # (recomendado: tener "build" en package.json)
-                npm run build -- --configuration=production --base-href="/$REPO_NAME/${{ matrix.name }}/" || npm run build
-              fi
-
-              # Detecta salida real: dist/<app>/browser o dist/<app>
-              if [ -d dist/*/browser ]; then
-                OUT_DIR=$(echo dist/*/browser)
-              else
-                OUT_DIR=$(echo dist/* | head -n1)
-              fi
-              ;;
-
             *)
-              echo "Tipo no soportado: ${{ matrix.type }}"
-              exit 1
-              ;;
+              echo "Tipo no soportado: ${{ matrix.type }}"; exit 1 ;;
           esac
 
-          echo "OUT_DIR=$OUT_DIR"
-
-          # Crear carpeta destino combinada
-          mkdir -p "$GITHUB_WORKSPACE/site/${{ matrix.name }}"
-
-          # Copiar archivos estáticos o build
-          # Para 'static', queremos copiar SOLO el contenido, no la carpeta .git ni workflow
+          DEST="$GITHUB_WORKSPACE/site_${{ matrix.name }}"
+          mkdir -p "$DEST"
           if [ "${{ matrix.type }}" = "static" ]; then
             shopt -s dotglob
-            cp -r ./* "$GITHUB_WORKSPACE/site/${{ matrix.name }}/"
+            cp -r ./* "$DEST/"
           else
-            cp -r "$OUT_DIR"/* "$GITHUB_WORKSPACE/site/${{ matrix.name }}/"
+            cp -r "$OUT_DIR"/* "$DEST/"
           fi
+          if [ -f "$DEST/index.html" ]; then cp "$DEST/index.html" "$DEST/404.html"; fi
 
-          # SPA fallback (si existe index.html)
-          if [ -f "$GITHUB_WORKSPACE/site/${{ matrix.name }}/index.html" ]; then
-            cp "$GITHUB_WORKSPACE/site/${{ matrix.name }}/index.html" "$GITHUB_WORKSPACE/site/${{ matrix.name }}/404.html"
-          fi
+      - name: Upload artifact for ${{ matrix.name }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-${{ matrix.name }}
+          path: site_${{ matrix.name }}
 
-      - name: Create root index
+  combine_and_deploy:
+    needs: build_each
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: _dl
+
+      - name: Assemble site
         run: |
+          set -e
           mkdir -p site
+          for d in _dl/project-*; do
+            name=$(basename "$d" | sed 's/^project-//')
+            mkdir -p "site/$name"
+            cp -r "$d"/* "site/$name/"
+          done
+
           cat > site/index.html <<'HTML'
-          <!doctype html>
-          <meta charset="utf-8">
+          <!doctype html><meta charset="utf-8">
           <title>Proyectos</title>
           <style>
-            body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:40px;line-height:1.6}
-            h1{margin-bottom:0.5rem}
-            ul{padding-left:1.2rem}
-            a{text-decoration:none}
-            a:hover{text-decoration:underline}
-            code{background:#f3f3f3;padding:2px 6px;border-radius:4px}
+          body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:40px;line-height:1.6}
+          h1{margin-bottom:0.5rem}ul{padding-left:1.2rem}
+          a{text-decoration:none}a:hover{text-decoration:underline}
+          code{background:#f3f3f3;padding:2px 6px;border-radius:4px}
           </style>
-          <h1>Proyectos publicados</h1>
-          <ul>
-            <li><a href="./landingSimple/">landingSimple</a> <code>(static)</code></li>
-            <li><a href="./reactDemo/">reactDemo</a> <code>(vite)</code></li>
-            <li><a href="./craDemo/">craDemo</a> <code>(cra)</code></li>
-            <li><a href="./angularDemo/">angularDemo</a> <code>(angular)</code></li>
+          <h1>Proyectos publicados</h1><ul>
+          HTML
+          for d in site/*/ ; do
+            name=$(basename "$d")
+            echo "  <li><a href=\"./$name/\">$name</a></li>" >> site/index.html
+          done
+          cat >> site/index.html <<'HTML'
           </ul>
           <p>Repositorio: <a href="https://github.com/${{ github.repository }}">@${{ github.repository }}</a></p>
           HTML
@@ -162,10 +151,4 @@ jobs:
         with:
           path: site
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-    steps:
       - uses: actions/deploy-pages@v4
