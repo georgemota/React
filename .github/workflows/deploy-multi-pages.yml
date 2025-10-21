@@ -24,17 +24,17 @@ jobs:
         include:
           # Proyectos estáticos (solo HTML/CSS/JS en la carpeta)
           - name: 01-intro-react
-            path: React/01-intro-react
+            path: 01-intro-react
             type: static
 
           # Vite (React/Vanilla/etc). El build sale en "dist"
           - name: 05-gif-expert-app
-            path: React/05-gif-expert-app
+            path: 05-gif-expert-app
             type: vite
 
           # Create React App. El build sale en "build"
           - name: 03-counter-app-cra
-            path: React/03-counter-app-cra
+            path: 03-counter-app-cra
             type: cra
 
           # Angular. El build sale en "dist/<app>/browser" o "dist/<app>"
