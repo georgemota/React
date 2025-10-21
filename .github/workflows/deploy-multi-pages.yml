@@ -40,6 +40,9 @@ jobs:
             app_03_counter_cra:
               - '03-counter-app-cra/**'
 
+            app_03_custom_counter_vite:
+              - '03-custom-counter-app-vite/**'
+
             app_05_gif_expert:
               - '05-gif-expert-app/**'
 
@@ -60,6 +63,10 @@ jobs:
 
           if [ "${{ steps.filter.outputs.app_03_counter_cra }}" = "true" ]; then
             changes+=('{ "name": "03-counter-app-cra", "path": "03-counter-app-cra", "type": "cra" }')
+          fi
+
+          if [ "${{ steps.filter.outputs.app_03_custom_counter_vite }}" = "true" ]; then
+            changes+=('{ "name": "03-counter-app-vite", "path": "03-counter-app-vite", "type": "vite" }')
           fi
 
           if [ "${{ steps.filter.outputs.app_05_gif_expert }}" = "true" ]; then
