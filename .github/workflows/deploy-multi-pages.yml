@@ -1,4 +1,4 @@
-name: Deploy multi projects (incremental) to GitHub Pages
+name: Deploy multi projects to GitHub Pages
 
 on:
   push:
@@ -15,76 +15,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  detect_changed:
+  build:
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.build-matrix.outputs.matrix }}
-      any_changed: ${{ steps.build-matrix.outputs.any_changed }}
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Paths filter
-        id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          filters: |
-            app_01_intro:
-              - '01-intro-react/**'
-            # app_02_intro_javascript:
-            #   - '02-intro-javascript/**'
-            app_03_counter_cra:
-              - '03-counter-app-cra/**'
-            app_03_custom_counter_vite:
-              - '03-custom-counter-app-vite/**'
-            app_04_default_counter_vite:
-              - '04-default-counter-app-vite/**'
-            app_05_gif_expert:
-              - '05-gif-expert-app/**'
-
-      - name: Build dynamic matrix
-        id: build-matrix
-        run: |
-          changes=()
-
-          if [ "${{ steps.filter.outputs.app_01_intro }}" = "true" ]; then
-            changes+=('{ "name": "01-intro-react", "path": "01-intro-react", "type": "static" }')
-          fi
-          # if [ "${{ steps.filter.outputs.app_02_intro_javascript }}" = "true" ]; then
-          #   changes+=('{ "name": "02-intro-javascript", "path": "02-intro-javascript", "type": "vite" }')
-          # fi
-          if [ "${{ steps.filter.outputs.app_03_counter_cra }}" = "true" ]; then
-            changes+=('{ "name": "03-counter-app-cra", "path": "03-counter-app-cra", "type": "cra" }')
-          fi
-          if [ "${{ steps.filter.outputs.app_03_custom_counter_vite }}" = "true" ]; then
-            changes+=('{ "name": "03-custom-counter-app-vite", "path": "03-custom-counter-app-vite", "type": "vite" }')
-          fi
-          if [ "${{ steps.filter.outputs.app_04_default_counter_vite }}" = "true" ]; then
-            changes+=('{ "name": "04-default-counter-app-vite", "path": "04-default-counter-app-vite", "type": "vite" }')
-          fi
-          if [ "${{ steps.filter.outputs.app_05_gif_expert }}" = "true" ]; then
-            changes+=('{ "name": "05-gif-expert-app", "path": "05-gif-expert-app", "type": "vite" }')
-          fi
-
-          if [ ${#changes[@]} -eq 0 ]; then
-            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
-            echo 'any_changed=false' >> $GITHUB_OUTPUT
-          else
-            json="{"'include'":["
-            IFS=,
-            json+=$(printf "%s" "${changes[*]}")
-            json+="]}"
-            echo "matrix=$json" >> $GITHUB_OUTPUT
-            echo 'any_changed=true' >> $GITHUB_OUTPUT
-          fi
-
-  build_each:
-    needs: detect_changed
-    if: needs.detect_changed.outputs.any_changed == 'true'
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.detect_changed.outputs.matrix) }}
+      matrix:
+        include:
+          # Proyectos estáticos (solo HTML/CSS/JS en la carpeta)
+          # Vite (React/Vanilla/etc). El build sale en "dist"
+          # Create React App. El build sale en "build"
+          
+          - name: 01-intro-react
+            path: 01-intro-react
+            type: static
+
+          - name: 03-counter-app-cra
+            path: 03-counter-app-cra
+            type: static
+          
+          - name: 05-gif-expert-app
+            path: 05-gif-expert-app
+            type: vite
+          
+          - name: 03-counter-app-cra
+            path: 03-counter-app-cra
+            type: cra
+
     steps:
       - uses: actions/checkout@v4
 
@@ -93,32 +50,32 @@ jobs:
         with:
           node-version: 20
 
-      - name: Cache node_modules
-        if: hashFiles(format('{0}/package-lock.json', matrix.path)) != ''
-        uses: actions/cache@v4
-        with:
-          path: ${{ matrix.path }}/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles(format('{0}/package-lock.json', matrix.path)) }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Build ${{ matrix.name }}
+      - name: Build project ${{ matrix.name }}
         working-directory: ${{ matrix.path }}
         env:
           REPO_NAME: ${{ github.event.repository.name }}
           PUBLIC_URL: /${{ github.event.repository.name }}/${{ matrix.name }}/
         run: |
           set -e
-          echo "Construyendo: ${{ matrix.name }} (tipo=${{ matrix.type }})"
+
+          echo "Proyecto: ${{ matrix.name }}"
+          echo "Tipo: ${{ matrix.type }}"
+          echo "Ruta: $(pwd)"
+
+          # Si hay Node, instala dependencias (seguro para static también)
           if [ -f package.json ]; then
             if [ -f package-lock.json ]; then npm ci; else npm install; fi
           fi
 
+          # Build según tipo
           case "${{ matrix.type }}" in
             static)
+              # No hay build: solo copiar tal cual
               OUT_DIR="$(pwd)"
               ;;
+
             vite)
+              # Forzamos base para subcarpeta (Pages)
               if grep -q "\"build\"" package.json; then
                 npm run build -- --base="/$REPO_NAME/${{ matrix.name }}/"
               else
@@ -126,96 +83,77 @@ jobs:
               fi
               OUT_DIR="dist"
               ;;
+
             cra)
+              # CRA respeta PUBLIC_URL para rutas relativas
               npm run build
               OUT_DIR="build"
               ;;
+
+            angular)
+              # Angular: intentamos pasar --base-href; si falla, build normal
+              if npx ng version >/dev/null 2>&1; then
+                npx ng build --configuration production --base-href="/$REPO_NAME/${{ matrix.name }}/" || npx ng build --configuration production
+              else
+                # Si no está el CLI global, confiamos en scripts del proyecto
+                # (recomendado: tener "build" en package.json)
+                npm run build -- --configuration=production --base-href="/$REPO_NAME/${{ matrix.name }}/" || npm run build
+              fi
+
+              # Detecta salida real: dist/<app>/browser o dist/<app>
+              if [ -d dist/*/browser ]; then
+                OUT_DIR=$(echo dist/*/browser)
+              else
+                OUT_DIR=$(echo dist/* | head -n1)
+              fi
+              ;;
+
             *)
-              echo "Tipo no soportado: ${{ matrix.type }}"; exit 1 ;;
+              echo "Tipo no soportado: ${{ matrix.type }}"
+              exit 1
+              ;;
           esac
 
-          DEST="$GITHUB_WORKSPACE/site_${{ matrix.name }}"
-          mkdir -p "$DEST"
+          echo "OUT_DIR=$OUT_DIR"
+
+          # Crear carpeta destino combinada
+          mkdir -p "$GITHUB_WORKSPACE/site/${{ matrix.name }}"
+
+          # Copiar archivos estáticos o build
+          # Para 'static', queremos copiar SOLO el contenido, no la carpeta .git ni workflow
           if [ "${{ matrix.type }}" = "static" ]; then
             shopt -s dotglob
-            cp -r ./* "$DEST/"
+            cp -r ./* "$GITHUB_WORKSPACE/site/${{ matrix.name }}/"
           else
-            cp -r "$OUT_DIR"/* "$DEST/"
+            cp -r "$OUT_DIR"/* "$GITHUB_WORKSPACE/site/${{ matrix.name }}/"
           fi
-          if [ -f "$DEST/index.html" ]; then cp "$DEST/index.html" "$DEST/404.html"; fi
 
-      - name: Upload artifact (${{ matrix.name }})
-        uses: actions/upload-artifact@v4
-        with:
-          name: project-${{ matrix.name }}
-          path: site_${{ matrix.name }}
-          retention-days: 30
+          # SPA fallback (si existe index.html)
+          if [ -f "$GITHUB_WORKSPACE/site/${{ matrix.name }}/index.html" ]; then
+            cp "$GITHUB_WORKSPACE/site/${{ matrix.name }}/index.html" "$GITHUB_WORKSPACE/site/${{ matrix.name }}/404.html"
+          fi
 
-  combine_and_deploy:
-    needs: [ detect_changed, build_each ]
-    if: needs.detect_changed.outputs.any_changed == 'true'   # solo si hay cambios
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download previous site archive (if exists)
-        id: prev
-        uses: dawidd6/action-download-artifact@v6
-        continue-on-error: true
-        with:
-          workflow: deploy-multi-incremental.yml   # <-- NOMBRE EXACTO del archivo
-          workflow_conclusion: success
-          branch: main
-          name: site-archive
-          path: _prev
-          if_no_artifact_found: ignore
-
-      - name: Prepare base site
+      - name: Create root index
         run: |
-          set -e
           mkdir -p site
-          if [ -d _prev ] && [ "$(ls -A _prev | wc -l)" -gt 0 ]; then
-            echo "Usando artifact anterior como base"
-            if compgen -G "_prev/*.zip" > /dev/null; then
-              unzip -q _prev/*.zip -d site
-            else
-              cp -r _prev/* site/ || true
-            fi
-          else
-            echo "No hay artifact previo; partimos de site/ vacío"
-          fi
-
-      - name: Download current project artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: _dl
-
-      - name: Merge changed apps into site
-        run: |
-          set -e
-          shopt -s nullglob
-          for d in _dl/project-*; do
-            name=$(basename "$d" | sed 's/^project-//')
-            echo "Actualizando site/$name"
-            mkdir -p "site/$name"
-            cp -r "$d"/* "site/$name/"
-          done
-
-          # index raíz
           cat > site/index.html <<'HTML'
-          <!doctype html><meta charset="utf-8">
+          <!doctype html>
+          <meta charset="utf-8">
           <title>Proyectos</title>
           <style>
             body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:40px;line-height:1.6}
-            h1{margin-bottom:0.5rem}ul{padding-left:1.2rem}
-            a{text-decoration:none}a:hover{text-decoration:underline}
+            h1{margin-bottom:0.5rem}
+            ul{padding-left:1.2rem}
+            a{text-decoration:none}
+            a:hover{text-decoration:underline}
             code{background:#f3f3f3;padding:2px 6px;border-radius:4px}
           </style>
-          <h1>Proyectos publicados</h1><ul>
-          HTML
-          for d in site/*/ ; do
-            name=$(basename "$d")
-            echo "  <li><a href=\"./$name/\">$name</a></li>" >> site/index.html
-          done
-          cat >> site/index.html <<'HTML'
+          <h1>Proyectos publicados</h1>
+          <ul>
+            <li><a href="./landingSimple/">landingSimple</a> <code>(static)</code></li>
+            <li><a href="./reactDemo/">reactDemo</a> <code>(vite)</code></li>
+            <li><a href="./craDemo/">craDemo</a> <code>(cra)</code></li>
+            <li><a href="./angularDemo/">angularDemo</a> <code>(angular)</code></li>
           </ul>
           <p>Repositorio: <a href="https://github.com/${{ github.repository }}">@${{ github.repository }}</a></p>
           HTML
@@ -224,12 +162,10 @@ jobs:
         with:
           path: site
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
       - uses: actions/deploy-pages@v4
-
-      - name: Save site archive for next run
-        uses: actions/upload-artifact@v4
-        with:
-          name: site-archive
-          path: site
-          retention-days: 30
-          overwrite: true
