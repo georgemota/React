@@ -43,6 +43,9 @@ jobs:
             app_03_custom_counter_vite:
               - '03-custom-counter-app-vite/**'
 
+            app_04_default_counter_vite:
+              - '04-default-counter-app-vite/**'
+
             app_05_gif_expert:
               - '05-gif-expert-app/**'
 
@@ -66,13 +69,16 @@ jobs:
           fi
 
           if [ "${{ steps.filter.outputs.app_03_custom_counter_vite }}" = "true" ]; then
-            changes+=('{ "name": "03-counter-app-vite", "path": "03-counter-app-vite", "type": "vite" }')
+            changes+=('{ "name": "03-custom-counter-app-vite", "path": "03-custom-counter-app-vite", "type": "vite" }')
+          fi
+
+          if [ "${{ steps.filter.outputs.app_04_default_counter_vite }}" = "true" ]; then
+            changes+=('{ "name": "04-default-counter-app-vite", "path": "04-default-counter-app-vite", "type": "vite" }')
           fi
 
           if [ "${{ steps.filter.outputs.app_05_gif_expert }}" = "true" ]; then
             changes+=('{ "name": "05-gif-expert-app", "path": "05-gif-expert-app", "type": "vite" }')
           fi
-
           
           if [ ${#changes[@]} -eq 0 ]; then
             echo "No hay apps cambiadas."
