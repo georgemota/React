@@ -2,7 +2,7 @@ import { TableComponent } from './TableComponent';
 
 const bvrdPage = 'https://bvrd.com.do'
 const navigateToBvrdPage = ( bvrdPage ) => window.location.href = bvrdPage;
-
+ 
 
 export const BvrdApp = () => {
   return (

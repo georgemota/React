@@ -2,7 +2,7 @@ name: Deploy multi projects (incremental) to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1) Detecta qué carpetas cambiaron
       - name: Paths filter
         id: filter
         uses: dorny/paths-filter@v3
@@ -32,24 +31,17 @@ jobs:
           filters: |
             app_01_intro:
               - '01-intro-react/**'
-
-            # Opción pendiente para el futuro
             # app_02_intro_javascript:
-            # - '02-intro-javascript/**'
-
+            #   - '02-intro-javascript/**'
             app_03_counter_cra:
               - '03-counter-app-cra/**'
-
             app_03_custom_counter_vite:
               - '03-custom-counter-app-vite/**'
-
             app_04_default_counter_vite:
               - '04-default-counter-app-vite/**'
-
             app_05_gif_expert:
               - '05-gif-expert-app/**'
 
-      # 2) Genera la matriz solo con las apps cambiadas
       - name: Build dynamic matrix
         id: build-matrix
         run: |
@@ -58,30 +50,23 @@ jobs:
           if [ "${{ steps.filter.outputs.app_01_intro }}" = "true" ]; then
             changes+=('{ "name": "01-intro-react", "path": "01-intro-react", "type": "static" }')
           fi
-
-          # Opción pendiente para el futuro
           # if [ "${{ steps.filter.outputs.app_02_intro_javascript }}" = "true" ]; then
           #   changes+=('{ "name": "02-intro-javascript", "path": "02-intro-javascript", "type": "vite" }')
           # fi
-
           if [ "${{ steps.filter.outputs.app_03_counter_cra }}" = "true" ]; then
             changes+=('{ "name": "03-counter-app-cra", "path": "03-counter-app-cra", "type": "cra" }')
           fi
-
           if [ "${{ steps.filter.outputs.app_03_custom_counter_vite }}" = "true" ]; then
             changes+=('{ "name": "03-custom-counter-app-vite", "path": "03-custom-counter-app-vite", "type": "vite" }')
           fi
-
           if [ "${{ steps.filter.outputs.app_04_default_counter_vite }}" = "true" ]; then
             changes+=('{ "name": "04-default-counter-app-vite", "path": "04-default-counter-app-vite", "type": "vite" }')
           fi
-
           if [ "${{ steps.filter.outputs.app_05_gif_expert }}" = "true" ]; then
             changes+=('{ "name": "05-gif-expert-app", "path": "05-gif-expert-app", "type": "vite" }')
           fi
-          
+
           if [ ${#changes[@]} -eq 0 ]; then
-            echo "No hay apps cambiadas."
             echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
             echo 'any_changed=false' >> $GITHUB_OUTPUT
           else
@@ -89,7 +74,6 @@ jobs:
             IFS=,
             json+=$(printf "%s" "${changes[*]}")
             json+="]}"
-            echo "Matriz: $json"
             echo "matrix=$json" >> $GITHUB_OUTPUT
             echo 'any_changed=true' >> $GITHUB_OUTPUT
           fi
@@ -168,28 +152,28 @@ jobs:
           retention-days: 30
 
   combine_and_deploy:
-    needs: [detect_changed, build_each]
+    needs: [ detect_changed, build_each ]
+    if: needs.detect_changed.outputs.any_changed == 'true'   # solo si hay cambios
     runs-on: ubuntu-latest
     steps:
-      # 1) Descargar el artifact del deploy anterior (si existe)
-      - name: Download previous Pages artifact (if exists)
+      - name: Download previous site archive (if exists)
         id: prev
         uses: dawidd6/action-download-artifact@v6
         continue-on-error: true
         with:
-          workflow: deploy-multi-incremental.yml # <-- nombre de este workflow
+          workflow: deploy-multi-incremental.yml   # <-- NOMBRE EXACTO del archivo
           workflow_conclusion: success
           branch: main
-          name: github-pages # nombre por defecto del artifact de Pages
+          name: site-archive
           path: _prev
+          if_no_artifact_found: ignore
 
       - name: Prepare base site
         run: |
           set -e
           mkdir -p site
-          if [ -d _prev ]; then
+          if [ -d _prev ] && [ "$(ls -A _prev | wc -l)" -gt 0 ]; then
             echo "Usando artifact anterior como base"
-            # el artifact de Pages viene como zip dentro, extraemos si aplica
             if compgen -G "_prev/*.zip" > /dev/null; then
               unzip -q _prev/*.zip -d site
             else
@@ -199,7 +183,6 @@ jobs:
             echo "No hay artifact previo; partimos de site/ vacío"
           fi
 
-      # 2) Descargar artefactos de esta corrida (solo apps cambiadas)
       - name: Download current project artifacts
         uses: actions/download-artifact@v4
         with:
@@ -216,7 +199,7 @@ jobs:
             cp -r "$d"/* "site/$name/"
           done
 
-          # Index raíz (regenerar)
+          # index raíz
           cat > site/index.html <<'HTML'
           <!doctype html><meta charset="utf-8">
           <title>Proyectos</title>
@@ -237,9 +220,16 @@ jobs:
           <p>Repositorio: <a href="https://github.com/${{ github.repository }}">@${{ github.repository }}</a></p>
           HTML
 
-      # 3) Subir y desplegar TODO junto (una sola vez)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
       - uses: actions/deploy-pages@v4
+
+      - name: Save site archive for next run
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-archive
+          path: site
+          retention-days: 30
+          overwrite: true
