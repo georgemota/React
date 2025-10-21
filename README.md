@@ -31,7 +31,7 @@ Cada proyecto está construido con **Vite** o **Create React App**, dependiendo 
 
 Este repositorio sirve como portafolio técnico y espacio de experimentación, documentando mi evolución en el uso de **React.js** y su ecosistema.
 
-> 💡 A medida que los proyectos alcancen madurez, serán publicados mediante **GitHub Pages** y vinculados directamente desde esta documentación.
+> A medida que los proyectos alcancen madurez, serán publicados mediante **GitHub Pages** y vinculados directamente desde esta documentación.
 
 ---
 
