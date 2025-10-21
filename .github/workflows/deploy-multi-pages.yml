@@ -22,27 +22,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ======== EDITA DESDE AQUÍ ========
           # Proyectos estáticos (solo HTML/CSS/JS en la carpeta)
-          - name: landingSimple
-            path: projects/landingSimple
+          - name: 01-intro-react
+            path: React/01-intro-react
             type: static
 
           # Vite (React/Vanilla/etc). El build sale en "dist"
-          - name: reactDemo
-            path: projects/reactDemo
+          - name: 05-gif-expert-app
+            path: React/05-gif-expert-app
             type: vite
 
           # Create React App. El build sale en "build"
-          - name: craDemo
-            path: projects/craDemo
+          - name: 03-counter-app-cra
+            path: React/03-counter-app-cra
             type: cra
 
           # Angular. El build sale en "dist/<app>/browser" o "dist/<app>"
-          - name: angularDemo
-            path: projects/angularDemo
-            type: angular
-          # ======== HASTA AQUÍ ========
+          # - name: angularDemo
+          #   path: projects/angularDemo
+          #   type: angular
 
     steps:
       - uses: actions/checkout@v4
