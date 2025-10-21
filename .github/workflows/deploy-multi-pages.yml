@@ -2,7 +2,7 @@ name: Deploy multi projects (incremental) to GitHub Pages
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -32,10 +32,12 @@ jobs:
           filters: |
             app_01_intro:
               - '01-intro-react/**'
-            app_gif_expert:
-              - '05-gif-expert-app/**'
-            app_counter_cra:
+              app_02_intro_javascript:
+              - '02-intro-javascript/**'
+              app_counter_cra:
               - '03-counter-app-cra/**'
+            app_05_gif_expert:
+              - '05-gif-expert-app/**'
 
       # 2) Genera la matriz solo con las apps cambiadas
       - name: Build dynamic matrix
@@ -45,13 +47,17 @@ jobs:
           if [ "${{ steps.filter.outputs.app_01_intro }}" = "true" ]; then
             changes+=('{ "name": "01-intro-react", "path": "01-intro-react", "type": "static" }')
           fi
-          if [ "${{ steps.filter.outputs.app_gif_expert }}" = "true" ]; then
-            changes+=('{ "name": "05-gif-expert-app", "path": "05-gif-expert-app", "type": "vite" }')
+          if [ "${{ steps.filter.outputs.app_02_intro_javascript }}" = "true" ]; then
+            changes+=('{ "name": "02-intro-javascript", "path": "05-gif-expert-app", "type": "vite" }')
           fi
           if [ "${{ steps.filter.outputs.app_counter_cra }}" = "true" ]; then
             changes+=('{ "name": "03-counter-app-cra", "path": "03-counter-app-cra", "type": "cra" }')
           fi
+          if [ "${{ steps.filter.outputs.app_gif_expert }}" = "true" ]; then
+            changes+=('{ "name": "05-gif-expert-app", "path": "05-gif-expert-app", "type": "vite" }')
+          fi
 
+          
           if [ ${#changes[@]} -eq 0 ]; then
             echo "No hay apps cambiadas."
             echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
@@ -149,10 +155,10 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         continue-on-error: true
         with:
-          workflow: deploy-multi-incremental.yml   # <-- nombre de este workflow
+          workflow: deploy-multi-incremental.yml # <-- nombre de este workflow
           workflow_conclusion: success
           branch: main
-          name: github-pages                         # nombre por defecto del artifact de Pages
+          name: github-pages # nombre por defecto del artifact de Pages
           path: _prev
 
       - name: Prepare base site
