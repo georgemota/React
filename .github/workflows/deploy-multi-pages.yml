@@ -65,42 +65,54 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
           PUBLIC_URL: /${{ github.event.repository.name }}/${{ matrix.name }}/
         run: |
-          set -e
-          echo "Proyecto: ${{ matrix.name }} | Tipo: ${{ matrix.type }}"
-
-          if [ -f package.json ]; then
-            if [ -f package-lock.json ]; then npm ci; else npm install; fi
-          fi
-
-          case "${{ matrix.type }}" in
-            static)
-              OUT_DIR="$(pwd)"
-              ;;
-            vite)
-              if grep -q "\"build\"" package.json; then
-                npm run build -- --base="/$REPO_NAME/${{ matrix.name }}/"
-              else
-                npx vite build --base="/$REPO_NAME/${{ matrix.name }}/"
-              fi
-              OUT_DIR="dist"
-              ;;
-            cra)
-              npm run build
-              OUT_DIR="build"
-              ;;
-            *)
-              echo "Tipo no soportado: ${{ matrix.type }}"; exit 1 ;;
-          esac
-
-          DEST="$GITHUB_WORKSPACE/site_${{ matrix.name }}"
-          mkdir -p "$DEST"
-          if [ "${{ matrix.type }}" = "static" ]; then
-            shopt -s dotglob
-            cp -r ./* "$DEST/"
-          else
-            cp -r "$OUT_DIR"/* "$DEST/"
-          fi
-          if [ -f "$DEST/index.html" ]; then cp "$DEST/index.html" "$DEST/404.html"; fi
+                set -e
+                echo "Proyecto: ${{ matrix.name }} | Tipo: ${{ matrix.type }}"
+      
+                # 1) Instalar dependencias del proyecto
+                if [ -f package.json ]; then
+                  if [ -f package-lock.json ]; then npm ci; else npm install; fi
+                fi
+      
+                # 1.5) (WORKAROUND) Solo para Vite/rollup en Linux: instalar binario nativo
+                if [ "${{ matrix.type }}" = "vite" ]; then
+                  npm install -D --no-audit --no-fund @rollup/rollup-linux-x64-gnu@latest || true
+                fi
+      
+                # 2) Build según tipo
+                case "${{ matrix.type }}" in
+                  static)
+                    OUT_DIR="$(pwd)"
+                    ;;
+      
+                  vite)
+                    if grep -q "\"build\"" package.json; then
+                      npm run build -- --base="/$REPO_NAME/${{ matrix.name }}/"
+                    else
+                      npx vite build --base="/$REPO_NAME/${{ matrix.name }}/"
+                    fi
+                    OUT_DIR="dist"
+                    ;;
+      
+                  cra)
+                    npm run build
+                    OUT_DIR="build"
+                    ;;
+      
+                  *)
+                    echo "Tipo no soportado: ${{ matrix.type }}"; exit 1 ;;
+                esac
+      
+                # 3) Empaquetar salida
+                DEST="$GITHUB_WORKSPACE/site_${{ matrix.name }}"
+                mkdir -p "$DEST"
+                if [ "${{ matrix.type }}" = "static" ]; then
+                  shopt -s dotglob
+                  cp -r ./* "$DEST/"
+                else
+                  cp -r "$OUT_DIR"/* "$DEST/"
+                fi
+                if [ -f "$DEST/index.html" ]; then cp "$DEST/index.html" "$DEST/404.html"; fi
+      
 
       - name: Upload artifact for ${{ matrix.name }}
         uses: actions/upload-artifact@v4
