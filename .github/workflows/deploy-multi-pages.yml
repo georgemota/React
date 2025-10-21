@@ -33,13 +33,9 @@ jobs:
             app_01_intro:
               - '01-intro-react/**'
 
-              # Opción pendiente para el futuro
-              # app_02_intro_javascript:
-              # - '02-intro-javascript/**'
-
-
               app_counter_cra:
               - '03-counter-app-cra/**'
+
             app_05_gif_expert:
               - '05-gif-expert-app/**'
 
@@ -52,13 +48,10 @@ jobs:
             changes+=('{ "name": "01-intro-react", "path": "01-intro-react", "type": "static" }')
           fi
 
-          # Opción pendiente para el futuro
-          # if [ "${{ steps.filter.outputs.app_02_intro_javascript }}" = "true" ]; then
-          #   changes+=('{ "name": "02-intro-javascript", "path": "02-intro-javascript", "type": "vite" }')
-          # fi
           if [ "${{ steps.filter.outputs.app_counter_cra }}" = "true" ]; then
             changes+=('{ "name": "03-counter-app-cra", "path": "03-counter-app-cra", "type": "cra" }')
           fi
+
           if [ "${{ steps.filter.outputs.app_gif_expert }}" = "true" ]; then
             changes+=('{ "name": "05-gif-expert-app", "path": "05-gif-expert-app", "type": "vite" }')
           fi
